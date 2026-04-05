@@ -282,12 +282,12 @@ async function loadDataFromSupabase() {
   renderTripNav(); rtb(); rc();
 }
 
-// Database Helper functions
+// Database Helper functions (Fire and forget style to keep UI fast)
 function dbInsert(table, data) {
   supa.from(table).insert([data]).then(({error}) => { 
     if(error) {
-      console.error("Insert error:", error); 
-      alert("Error saving to database: " + error.message);
+      console.error("Insert error:", error);
+      alert("Save failed: " + error.message); // add this line temporarily
     }
   });
 }
@@ -297,15 +297,6 @@ function dbUpdate(table, id, data) {
 function dbDelete(table, id) {
   supa.from(table).delete().eq('id', id).then(({error}) => { if(error) console.error("Delete error:", error); });
 }
-
-// Real-time synchronization
-supa.channel('custom-all-channel')
-  .on('postgres', { event: '*', schema: 'public' }, (payload) => {
-    console.log('Change received!', payload);
-    loadDataFromSupabase();
-  })
-  .subscribe();
-
 </script>
 
 <div class="app">
@@ -408,18 +399,33 @@ function fmtD(s){if(!s)return'';try{const d=new Date(s+'T00:00:00');return d.toL
 function fmtDShort(s){if(!s)return'';try{const d=new Date(s+'T00:00:00');return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'});}catch(_){return s;}}
 function dateRange(ds,de){if(ds&&de)return fmtD(ds)+' – '+fmtD(de);if(ds)return fmtD(ds);return'';}
 
+/* ── Loading Overlay ── */
+function showLoading(show, text){
+  const el = document.getElementById('loading-overlay');
+  const txt = document.getElementById('loading-text');
+  if(show) { el.classList.add('on'); if(text) txt.textContent = text; } 
+  else { el.classList.remove('on'); }
+}
+function updateLoading(text){
+  const txt = document.getElementById('loading-text');
+  if(txt) txt.textContent = text;
+}
+
 /* ── Supabase Photo Handling ── */
 function photoUrl(filename){
   if(!filename)return '';
   if(filename.startsWith('http') || filename.startsWith('data:')) return filename;
+  // Get public URL from Supabase storage
   return supa.storage.from('wanderplan-photos').getPublicUrl(filename).data.publicUrl;
 }
 
 function compressImage(file, maxW=1600, maxH=1600, quality=0.8) {
   return new Promise((resolve) => {
     const reader = new FileReader();
+    reader.readAsDataURL(file);
     reader.onload = (e) => {
       const img = new Image();
+      img.src = e.target.result;
       img.onload = () => {
         let w = img.width; let h = img.height;
         if (w > maxW || h > maxH) {
@@ -431,28 +437,18 @@ function compressImage(file, maxW=1600, maxH=1600, quality=0.8) {
         cvs.getContext('2d').drawImage(img, 0, 0, w, h);
         cvs.toBlob(blob => resolve(blob), 'image/jpeg', quality);
       };
-      // Important fallback: If image format is unsupported by canvas (e.g. HEIC), resolve original file
-      img.onerror = () => resolve(file); 
-      img.src = e.target.result;
     };
-    reader.onerror = () => resolve(file);
-    reader.readAsDataURL(file);
   });
 }
 
 async function uploadSupabasePhoto(file) {
   const compressedBlob = await compressImage(file);
-  const ext = file.name ? (file.name.split('.').pop() || 'jpg') : 'jpg';
+  const ext = file.name.split('.').pop() || 'jpg';
   const fname = 'wp_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext;
   
-  try {
-    const { data, error } = await supa.storage.from('wanderplan-photos').upload(fname, compressedBlob, { contentType: 'image/jpeg' });
-    if (error) { alert('Upload failed: ' + error.message); return null; }
-    return fname;
-  } catch (err) {
-    alert('Upload network error: ' + err.message);
-    return null;
-  }
+  const { data, error } = await supa.storage.from('wanderplan-photos').upload(fname, compressedBlob, { contentType: 'image/jpeg' });
+  if (error) { alert('Upload failed: ' + error.message); return null; }
+  return fname;
 }
 
 async function deletePhotoFile(filename){
@@ -462,11 +458,7 @@ async function deletePhotoFile(filename){
 
 // Reusable photo picker that mutates array and updates DB
 function pickAndAddPhotos(getArr, onDone, table=null, itemId=null, arrayField='photos'){
-  const inp=document.createElement('input');
-  inp.type='file';inp.accept='image/*';inp.multiple=true;
-  inp.style.display='none';
-  document.body.appendChild(inp); // Append to DOM to prevent mobile browsers blocking the event
-  
+  const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.multiple=true;
   inp.onchange=async()=>{
     showLoading(true, "Uploading...");
     const arr=getArr();
@@ -478,11 +470,8 @@ function pickAndAddPhotos(getArr, onDone, table=null, itemId=null, arrayField='p
        const updateData = {}; updateData[arrayField] = arr;
        dbUpdate(table, itemId, updateData);
     }
-    showLoading(false);
-    document.body.removeChild(inp);
-    onDone();
-  };
-  inp.click();
+    showLoading(false);onDone();
+  };inp.click();
 }
 
 /* ── lightbox ── */
@@ -1634,9 +1623,7 @@ function saveTrip(){
   const name=gv('mn');if(!name)return;
   const status=gv('mst')||'planning';
   const ds=gv('mds');
-  
-  // NOTE: 'days' and 'dates' have been removed so Supabase does not throw an error
-  const t={id:Date.now(),name,country:gC('mc'),city:gv('mcity'),emoji:gv('me')||'✈️',dateStart:ds,dateEnd:gv('mde'),status,timeline:[],places:[],notes:'',photos:[]};
+  const t={id:Date.now(),name,country:gC('mc'),city:gv('mcity'),emoji:gv('me')||'✈️',dateStart:ds,dateEnd:gv('mde'),status,days:[],timeline:[],places:[],notes:'',photos:[]};
   
   if(status === 'completed'){
     const year=ds?String(new Date(ds+'T00:00:00').getFullYear()):String(new Date().getFullYear());
@@ -1748,8 +1735,8 @@ window.updateTrip=function(id){
       year: year, dateStart: t.dateStart, dateEnd: t.dateEnd,
       rating: 0, score: null, vibe: null, wouldReturn: null,
       highlights: [], notes: t.notes, photos: t.photos || [],
-      diary: t.timeline || []
-      // places removed from past trips payload so Supabase accepts it smoothly!
+      diary: t.timeline || [],
+      places: t.places || []
     };
     D.past.unshift(pastTrip);
     D.trips = D.trips.filter(x => x.id !== id);
