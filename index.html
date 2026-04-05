@@ -123,7 +123,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);font
 .score-btn:hover{background:var(--surface2);color:var(--text);}
 .score-btn.on,.score-btn.active{background:var(--gold);color:#0f0e0c;border-color:var(--gold);font-weight:500;}
 .pscore-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;}
-.pscore-btn{min-width:32px;height:32px;padding:0 5px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;font-family:'Outfit',sans-serif;cursor:pointer;transition:background 0.1s,color:0.1s;}
+.pscore-btn{min-width:32px;height:32px;padding:0 5px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;font-family:'Outfit',sans-serif;cursor:pointer;transition:background 0.1s,color 0.1s;}
 .pscore-btn:hover{background:var(--surface2);}
 .pscore-btn.on,.pscore-btn.active{background:var(--green);color:#0f0e0c;border-color:var(--green);font-weight:500;}
 .emoji-row{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;}
@@ -340,6 +340,13 @@ supa.channel('custom-all-channel')
 <div id="modal-root"></div>
 <div id="lightbox-root"></div>
 
+<div id="loading-overlay" class="loading-overlay">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div id="loading-text" class="loading-text">Syncing data...</div>
+  </div>
+</div>
+
 <script>
 const COUNTRIES=["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan","Palau","Palestine","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"];
 const BLOCK_TYPES=['Activity','Food','Transport','Accommodation','Free time'];
@@ -411,10 +418,8 @@ function photoUrl(filename){
 function compressImage(file, maxW=1600, maxH=1600, quality=0.8) {
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
     reader.onload = (e) => {
       const img = new Image();
-      img.src = e.target.result;
       img.onload = () => {
         let w = img.width; let h = img.height;
         if (w > maxW || h > maxH) {
@@ -426,18 +431,28 @@ function compressImage(file, maxW=1600, maxH=1600, quality=0.8) {
         cvs.getContext('2d').drawImage(img, 0, 0, w, h);
         cvs.toBlob(blob => resolve(blob), 'image/jpeg', quality);
       };
+      // Important fallback: If image format is unsupported by canvas (e.g. HEIC), resolve original file
+      img.onerror = () => resolve(file); 
+      img.src = e.target.result;
     };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
   });
 }
 
 async function uploadSupabasePhoto(file) {
   const compressedBlob = await compressImage(file);
-  const ext = file.name.split('.').pop() || 'jpg';
+  const ext = file.name ? (file.name.split('.').pop() || 'jpg') : 'jpg';
   const fname = 'wp_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext;
   
-  const { data, error } = await supa.storage.from('wanderplan-photos').upload(fname, compressedBlob, { contentType: 'image/jpeg' });
-  if (error) { alert('Upload failed: ' + error.message); return null; }
-  return fname;
+  try {
+    const { data, error } = await supa.storage.from('wanderplan-photos').upload(fname, compressedBlob, { contentType: 'image/jpeg' });
+    if (error) { alert('Upload failed: ' + error.message); return null; }
+    return fname;
+  } catch (err) {
+    alert('Upload network error: ' + err.message);
+    return null;
+  }
 }
 
 async function deletePhotoFile(filename){
@@ -447,7 +462,11 @@ async function deletePhotoFile(filename){
 
 // Reusable photo picker that mutates array and updates DB
 function pickAndAddPhotos(getArr, onDone, table=null, itemId=null, arrayField='photos'){
-  const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.multiple=true;
+  const inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.multiple=true;
+  inp.style.display='none';
+  document.body.appendChild(inp); // Append to DOM to prevent mobile browsers blocking the event
+  
   inp.onchange=async()=>{
     showLoading(true, "Uploading...");
     const arr=getArr();
@@ -459,8 +478,11 @@ function pickAndAddPhotos(getArr, onDone, table=null, itemId=null, arrayField='p
        const updateData = {}; updateData[arrayField] = arr;
        dbUpdate(table, itemId, updateData);
     }
-    showLoading(false);onDone();
-  };inp.click();
+    showLoading(false);
+    document.body.removeChild(inp);
+    onDone();
+  };
+  inp.click();
 }
 
 /* ── lightbox ── */
@@ -1726,8 +1748,8 @@ window.updateTrip=function(id){
       year: year, dateStart: t.dateStart, dateEnd: t.dateEnd,
       rating: 0, score: null, vibe: null, wouldReturn: null,
       highlights: [], notes: t.notes, photos: t.photos || [],
-      diary: t.timeline || [],
-      places: t.places || []
+      diary: t.timeline || []
+      // places removed from past trips payload so Supabase accepts it smoothly!
     };
     D.past.unshift(pastTrip);
     D.trips = D.trips.filter(x => x.id !== id);
