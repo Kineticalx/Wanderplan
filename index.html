@@ -566,21 +566,17 @@ function ratingWidget(fieldId,cfg,saved){
 
   let html='';
   if(cfg.type==='score10'){
-    const btns=[1,2,3,4,5,6,7,8,9,10].map(i=>{
-      const a=(current===i||current===String(i))?'active':'';
-      return`<button class="score-btn ${a}" onclick="${set}=${i};ratingRefresh('${rowId}','${fieldId}','score10')">${i}</button>`;
-    }).join('');
-    const na=cfg.withNA?`<button class="score-btn ${current==='na'?'active':''}" onclick="${set}='na';ratingRefresh('${rowId}','${fieldId}','score10')">N/A</button>`:'';
-    const sliderVal=(current===null||current==='na')?0:Number(current);
-    const sliderDisp=current===null||current==='na'?'—':current;
+    const sliderVal=(current===null||current==='na')?5:Number(current);
+    const sliderDisp=current===null||current==='na'?'—':Number(current).toFixed(1);
+    const na=cfg.withNA?`<button class="score-btn ${current==='na'?'active':''}" style="margin-top:8px;" onclick="${set}='na';ratingRefresh('${rowId}','${fieldId}','score10')">N/A</button>`:'';
     html=`<div id="${rowId}">
       <div class="rating-slider-wrap">
-        <input type="range" class="rating-slider" min="1" max="10" step="1" value="${sliderVal||1}"
+        <input type="range" class="rating-slider" min="0" max="10" step="0.1" value="${sliderVal}"
           oninput="${set}=Number(this.value);ratingRefresh('${rowId}','${fieldId}','score10')"
           style="flex:1;"/>
         <div class="rating-slider-val" id="${rowId}-sv">${sliderDisp}</div>
       </div>
-      <div class="score-row" style="margin-top:8px;">${btns}${na}</div>
+      ${na}
     </div>`;
   }else if(cfg.type==='stars5'){
     const stars=[1,2,3,4,5].map(i=>{
@@ -589,22 +585,17 @@ function ratingWidget(fieldId,cfg,saved){
     }).join('');
     html=`<div class="stars" id="${rowId}">${stars}</div>`;
   }else if(cfg.type==='halves5'){
-    const vals=[1,1.5,2,2.5,3,3.5,4,4.5,5];
-    const btns=vals.map(v=>{
-      const a=(Number(current)===v)?'active':'';
-      return`<button class="score-btn ${a}" style="min-width:40px;" onclick="${set}=${v};ratingRefresh('${rowId}','${fieldId}','halves5')">${v}</button>`;
-    }).join('');
-    const na=cfg.withNA?`<button class="score-btn ${current==='na'?'active':''}" onclick="${set}='na';ratingRefresh('${rowId}','${fieldId}','halves5')">N/A</button>`:'';
-    const sliderVal=(current===null||current==='na')?1:Number(current);
-    const sliderDisp=current===null||current==='na'?'—':current;
+    const sliderVal=(current===null||current==='na')?2.5:Number(current);
+    const sliderDisp=current===null||current==='na'?'—':Number(current).toFixed(1);
+    const na=cfg.withNA?`<button class="score-btn ${current==='na'?'active':''}" style="margin-top:8px;" onclick="${set}='na';ratingRefresh('${rowId}','${fieldId}','halves5')">N/A</button>`:'';
     html=`<div id="${rowId}">
       <div class="rating-slider-wrap">
-        <input type="range" class="rating-slider" min="1" max="5" step="0.5" value="${sliderVal}"
+        <input type="range" class="rating-slider" min="0" max="5" step="0.1" value="${sliderVal}"
           oninput="${set}=Number(this.value);ratingRefresh('${rowId}','${fieldId}','halves5')"
           style="flex:1;"/>
         <div class="rating-slider-val" id="${rowId}-sv">${sliderDisp}</div>
       </div>
-      <div class="score-row" style="margin-top:8px;">${btns}${na}</div>
+      ${na}
     </div>`;
   }else if(cfg.type==='emoji'){
     const opts=[{v:1,e:'😞',l:'Bad'},{v:2,e:'😐',l:'OK'},{v:3,e:'😊',l:'Good'},{v:4,e:'😄',l:'Great'},{v:5,e:'🤩',l:'Amazing'}];
@@ -634,28 +625,17 @@ function ratingWidget(fieldId,cfg,saved){
 window.ratingRefresh=function(rowId,fieldId,type){
   const current=window.__ratings[fieldId];
   const row=document.getElementById(rowId);if(!row)return;
-  if(type==='score10'){
-    row.querySelectorAll('.score-btn').forEach(b=>{
-      const bv=b.textContent==='N/A'?'na':Number(b.textContent);
-      b.classList.toggle('active',(current==='na'&&bv==='na')||(current!=='na'&&bv===current));
-    });
-    const sl=row.querySelector('.rating-slider');const sv=document.getElementById(rowId+'-sv');
-    if(sl&&current!=='na'&&current!==null){sl.value=Number(current);}
-    if(sv)sv.textContent=(current===null||current==='na')?'—':current;
+  if(type==='score10'||type==='halves5'){
+    const sv=document.getElementById(rowId+'-sv');
+    if(sv)sv.textContent=(current===null||current==='na')?'—':Number(current).toFixed(1);
+    const sl=row.querySelector('.rating-slider');
+    if(sl&&current!=='na'&&current!==null)sl.value=Number(current);
   }else if(type==='stars5'){
     row.querySelectorAll('.star').forEach((s,i)=>{
       const on=current!==null&&current!=='na'&&(i+1)<=Number(current);
       s.classList.toggle('on',on);
       s.textContent=on?'★':'☆';
     });
-  }else if(type==='halves5'){
-    row.querySelectorAll('.score-btn').forEach(b=>{
-      const bv=b.textContent==='N/A'?'na':Number(b.textContent);
-      b.classList.toggle('active',(current==='na'&&bv==='na')||(Number(current)===bv));
-    });
-    const sl=row.querySelector('.rating-slider');const sv=document.getElementById(rowId+'-sv');
-    if(sl&&current!=='na'&&current!==null){sl.value=Number(current);}
-    if(sv)sv.textContent=(current===null||current==='na')?'—':current;
   }else if(type==='emoji'){
     row.querySelectorAll('.emoji-btn').forEach((b,i)=>{
       b.classList.toggle('active',Number(current)===(i+1));
