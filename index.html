@@ -284,12 +284,7 @@ async function loadDataFromSupabase() {
 
 // Database Helper functions (Fire and forget style to keep UI fast)
 function dbInsert(table, data) {
-  supa.from(table).insert([data]).then(({error}) => { 
-    if(error) {
-      console.error("Insert error:", error);
-      alert("Save failed: " + error.message); // add this line temporarily
-    }
-  });
+  supa.from(table).insert([data]).then(({error}) => { if(error) console.error("Insert error:", error); });
 }
 function dbUpdate(table, id, data) {
   supa.from(table).update(data).eq('id', id).then(({error}) => { if(error) console.error("Update error:", error); });
@@ -1220,8 +1215,13 @@ window.savePastDiaryEdit=function(tripId,blockId,useDates){
   dbUpdate('past', tripId, {diary: t.diary});
   if(sel&&sel.id===t.id)sel=t; cm();rc();
 };
-window.delPastDiaryBlock=function(tripId,blockId){
+window.delPastDiaryBlock=async function(tripId,blockId){
+  if(!confirm('Delete this diary entry? Any photos attached to it will also be permanently deleted.'))return;
   const t=D.past.find(x=>x.id===tripId);if(!t)return;
+  const block=(t.diary||[]).find(b=>b.id===blockId);
+  if(block&&block.photos&&block.photos.length){
+    for(const fname of block.photos){ await deletePhotoFile(fname); }
+  }
   t.diary=(t.diary||[]).filter(x=>x.id!==blockId);
   dbUpdate('past', tripId, {diary: t.diary});
   if(sel&&sel.id===tripId)sel=t; rc();
@@ -1346,8 +1346,13 @@ window.delHL=function(pastId,idx){
   dbUpdate('past', pastId, {highlights: t.highlights});
   if(sel&&sel.id===pastId)sel=t; rc();
 };
-window.deleteTLBlock=function(tripId,blockId){
+window.deleteTLBlock=async function(tripId,blockId){
+  if(!confirm('Delete this activity? Any photos attached to it will also be permanently deleted.'))return;
   const t=D.trips.find(x=>x.id===tripId);if(!t)return;
+  const block=(t.timeline||[]).find(b=>b.id===blockId);
+  if(block&&block.photos&&block.photos.length){
+    for(const fname of block.photos){ await deletePhotoFile(fname); }
+  }
   t.timeline=(t.timeline||[]).filter(b=>b.id!==blockId);
   dbUpdate('trips', tripId, {timeline: t.timeline});
   if(sel&&sel.id===tripId)sel=t; rc();
@@ -1623,7 +1628,7 @@ function saveTrip(){
   const name=gv('mn');if(!name)return;
   const status=gv('mst')||'planning';
   const ds=gv('mds');
-  const t={id:Date.now(),name,country:gC('mc'),city:gv('mcity'),emoji:gv('me')||'✈️',dateStart:ds,dateEnd:gv('mde'),status,timeline:[],places:[],notes:'',photos:[]};
+  const t={id:Date.now(),name,country:gC('mc'),city:gv('mcity'),emoji:gv('me')||'✈️',dateStart:ds,dateEnd:gv('mde'),status,days:[],timeline:[],places:[],notes:'',photos:[]};
   
   if(status === 'completed'){
     const year=ds?String(new Date(ds+'T00:00:00').getFullYear()):String(new Date().getFullYear());
